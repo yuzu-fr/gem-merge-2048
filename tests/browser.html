@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Gem Merge · 本地验收夹具</title>
+    <style>
+      body {
+        max-width: 700px;
+        margin: 28px auto;
+        padding: 16px;
+        font-family: system-ui;
+        background: #f8f5ef;
+        color: #51483e;
+      }
+      button {
+        padding: 12px;
+        margin: 6px;
+        border: 1px solid #bba576;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+      #touch-board {
+        width: 280px;
+        margin: 20px 0;
+      }
+      .note {
+        font-size: 13px;
+        line-height: 1.7;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>本地浏览器验收</h1>
+    <p class="note">
+      仅由 Vite 开发服务器提供，不进入 dist。载入夹具会备份当前存档；测试后点击“恢复原存档”。
+    </p>
+    <button id="merge">载入四颗2合并测试</button><button id="win">载入钻石前一步</button
+    ><button id="over">载入游戏结束棋盘</button><button id="restore">恢复原存档</button>
+    <h2>触摸事件集成检查</h2>
+    <p class="note">
+      通过真实 GameBoard 组件处理 TouchEvent 形状的事件，检查方向、点击阈值、多指取消和
+      preventDefault。手机实际手感仍需真机验证。
+    </p>
+    <div id="touch-board"></div>
+    <button id="touch-tests">运行四方向触摸检查</button>
+    <pre id="result">等待测试</pre>
+    <script type="module">
+      import { createApp, h } from 'vue'
+      import GameBoard from '../src/components/GameBoard.vue'
+      import { newGame } from '../src/game/session.ts'
+      import { STORAGE_KEY } from '../src/game/storage.ts'
+      import '../src/styles.css'
+      const backupKey = 'gem-merge-qa-backup'
+      function load(rows) {
+        if (sessionStorage.getItem(backupKey) === null)
+          sessionStorage.setItem(backupKey, localStorage.getItem(STORAGE_KEY) ?? 'EMPTY')
+        const tiles = rows.flatMap((row, r) =>
+          row.flatMap((value, c) => (value ? [{ id: r * 4 + c + 1, value, row: r, col: c }] : [])),
+        )
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            ...newGame(),
+            tiles,
+            nextId: 17,
+            score: 1024,
+            bestScore: 2048,
+            unlocked: [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+            previous: null,
+          }),
+        )
+        location.assign('/')
+      }
+      document.querySelector('#merge').onclick = () => load([[2, 2, 2, 2]])
+      document.querySelector('#win').onclick = () =>
+        load([
+          [1024, 1024, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ])
+      document.querySelector('#over').onclick = () =>
+        load([
+          [2, 4, 2, 4],
+          [4, 2, 4, 2],
+          [2, 4, 2, 4],
+          [4, 2, 4, 2],
+        ])
+      document.querySelector('#restore').onclick = () => {
+        const backup = sessionStorage.getItem(backupKey)
+        if (backup === 'EMPTY') localStorage.removeItem(STORAGE_KEY)
+        else if (backup !== null) localStorage.setItem(STORAGE_KEY, backup)
+        sessionStorage.removeItem(backupKey)
+        location.assign('/')
+      }
+      let emitted = []
+      createApp({
+        render: () =>
+          h(GameBoard, {
+            tiles: [{ id: 1, value: 2, row: 0, col: 0 }],
+            mergedIds: [],
+            spawnedId: null,
+            active: true,
+            onMove: (direction) => emitted.push(direction),
+          }),
+      }).mount('#touch-board')
+      document.querySelector('#touch-tests').onclick = () => {
+        const board = document.querySelector('.game-board')
+        const results = []
+        const point = (x, y, id = 1) => ({ clientX: x, clientY: y, identifier: id })
+        function send(type, touches, changedTouches = touches) {
+          const event = new Event(type, { bubbles: true, cancelable: true })
+          Object.defineProperties(event, {
+            touches: { value: touches },
+            changedTouches: { value: changedTouches },
+          })
+          board.dispatchEvent(event)
+          return event.defaultPrevented
+        }
+        for (const [dx, dy, expected] of [
+          [-100, 2, 'left'],
+          [100, 2, 'right'],
+          [2, -100, 'up'],
+          [2, 100, 'down'],
+          [10, 10, null],
+        ]) {
+          emitted = []
+          send('touchstart', [point(150, 150)])
+          const prevented = send('touchmove', [point(150 + dx, 150 + dy)])
+          send('touchend', [], [point(150 + dx, 150 + dy)])
+          results.push({
+            test: expected ?? 'tap',
+            pass: (emitted[0] ?? null) === expected && prevented,
+            emitted,
+            prevented,
+          })
+        }
+        emitted = []
+        send('touchstart', [point(150, 150), point(160, 160, 2)])
+        send('touchend', [], [point(30, 150)])
+        results.push({ test: 'multitouch ignored', pass: emitted.length === 0 })
+        emitted = []
+        send('touchstart', [point(150, 150)])
+        send('touchcancel', [])
+        send('touchend', [], [point(30, 150)])
+        results.push({ test: 'touchcancel ignored', pass: emitted.length === 0 })
+        document.querySelector('#result').textContent = JSON.stringify(
+          { passed: results.every((r) => r.pass), results },
+          null,
+          2,
+        )
+      }
+    </script>
+  </body>
+</html>
