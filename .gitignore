@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.vercel/
+.DS_Store
+*.local
+coverage/
+test-results/
+.wrangler/
+releases/
+.vercel
+.env
+.env.*
+!.env.example
